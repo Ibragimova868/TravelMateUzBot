@@ -3,6 +3,7 @@ import sys
 import os
 import sqlite3
 import threading
+from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 
@@ -118,6 +119,39 @@ CITIES_COORDS = {
     "Chorvoq": (41.6267, 70.0381)
 }
 
+WEATHER_CODES = {
+    0: "☀️ Ochiq, musaffo havo",
+    1: "🌤️ Asosan ochiq",
+    2: "⛅ Qisman bulutli",
+    3: "☁️ Bulutli",
+    45: "🌫️ Tuman",
+    48: "🌫️ Qirov/Tuman",
+    51: "🌦️ Yengil mayda yomg'ir",
+    53: "🌧️ O'rtacha yomg'ir",
+    55: "🌧️ Kuchli yomg'ir",
+    61: "🌧️ Yomg'ir yog'ishi",
+    63: "🌧️ O'rtacha yomg'ir",
+    65: "⛈️ Kuchli jala",
+    71: "🌨️ Yengil qor",
+    73: "🌨️ Qor yog'ishi",
+    75: "❄️ Qalin qor",
+    80: "🌦️ Qisqa yomg'ir",
+    81: "🌧️ Kuchli jala",
+    82: "⛈️ Bo'ronli shiddatli yomg'ir",
+    95: "⛈️ Momaqaldiroq",
+    96: "⛈️ Momaqaldiroq va do'l"
+}
+
+DAYS_UZ = {
+    0: "Dushanba",
+    1: "Seshanba",
+    2: "Chorshanba",
+    3: "Payshanba",
+    4: "Juma",
+    5: "Shanba",
+    6: "Yakshanba"
+}
+
 def get_main_keyboard(lang="uz"):
     s = STRINGS.get(lang, STRINGS["uz"])
     kb = [
@@ -130,7 +164,13 @@ def get_main_keyboard(lang="uz"):
 
 def fetch_weather(lat: float, lon: float):
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,temperature_2m_min,weathercode&current_weather=true&timezone=Asia%2FTashkent"
+        url = (
+            f"https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            f"&current_weather=true"
+            f"&daily=weathercode,temperature_2m_max,temperature_2m_min"
+            f"&timezone=Asia%2FTashkent"
+        )
         res = requests.get(url, timeout=10).json()
         return res.get("current_weather", {}), res.get("daily", {})
     except Exception as e:
@@ -175,7 +215,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = (
         "🤖 **Sayohatchi Bot Yo'riqnomasi:**\n\n"
         "• 🚗 **Yo'nalish va Masofa** — Shaharlar orasidagi masofa va vaqtni hisoblash.\n"
-        "• ⛅ **Ob-havo** — O'zbekiston viloyatlari bo'yicha ob-havo prognozi.\n"
+        "• ⛅ **Ob-havo** — O'zbekiston viloyatlari bo'yicha 7 kunlik ob-havo prognozi.\n"
         "• 📍 **Yaqin joylar** — Atrofingizdagi dorixona, zapravka va kafelar.\n"
         "• 📅 **Sayohat rejasi** — Tarixiy shaharlar uchun 3 kunlik marshrut.\n"
         "• 🎒 **Chamadon ro'yxati** — Sayohat uchun muhim narsalar."
@@ -192,7 +232,21 @@ async def weather_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             row = []
     if row:
         buttons.append(row)
-    await update.message.reply_text("⛅ **Viloyat yoki shaharni tanlang:**", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+
+    reply_markup = InlineKeyboardMarkup(buttons)
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            "⛅ **Kerakli shahar yoki viloyatni tanlang:**",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "⛅ **Kerakli shahar yoki viloyatni tanlang:**",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
 
 async def weather_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -200,20 +254,50 @@ async def weather_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     city = query.data.replace("w_", "")
     coords = CITIES_COORDS.get(city)
     if not coords:
+        await query.edit_message_text("⚠️ Shahar topilmadi.")
         return
+
     curr, daily = fetch_weather(coords[0], coords[1])
-    temp = curr.get("temperature", "--") if curr else "--"
-    wind = curr.get("windspeed", "--") if curr else "--"
+    if not curr:
+        await query.edit_message_text("⚠️ Ob-havo ma'lumotlarini yuklashda xatolik yuz berdi.")
+        return
+
+    temp = curr.get("temperature", "--")
+    wind = curr.get("windspeed", "--")
+    wcode = curr.get("weathercode", 0)
+    cond = WEATHER_CODES.get(wcode, "🌤️ Ochiq havo")
+
     text = (
-        f"🌤️ **{city} shahridagi ob-havo:**\n\n"
-        f"🌡️ **Hozirgi harorat:** {temp}°C\n"
+        f"📍 **{city} shahri ob-havosi:**\n\n"
+        f"🌡️ **Hozirgi harorat:** {temp}°C ({cond})\n"
         f"💨 **Shamol tezligi:** {wind} km/soat\n\n"
-        f"📅 **Kelgusi kunlar prognozi:**\n"
+        f"📅 **Haftalik (7 kunlik) to'liq prognoz:**\n"
     )
+
     if daily and "time" in daily:
-        for d, mx, mn in zip(daily["time"][:4], daily["temperature_2m_max"][:4], daily["temperature_2m_min"][:4]):
-            text += f"• {d}: {mn}°C dan {mx}°C gacha\n"
-    await query.edit_message_text(text, parse_mode="Markdown")
+        times = daily["time"][:7]
+        max_temps = daily["temperature_2m_max"][:7]
+        min_temps = daily["temperature_2m_min"][:7]
+        codes = daily.get("weathercode", [0]*7)[:7]
+
+        for t_str, mx, mn, c in zip(times, max_temps, min_temps, codes):
+            try:
+                dt = datetime.strptime(t_str, "%Y-%m-%d")
+                day_name = DAYS_UZ.get(dt.weekday(), t_str)
+                date_formatted = dt.strftime("%d.%m")
+            except Exception:
+                day_name = t_str
+                date_formatted = ""
+
+            emoji = WEATHER_CODES.get(c, "⛅").split()[0]
+            text += f"• **{day_name}** ({date_formatted}): {emoji} {mn}°C dan {mx}°C gacha\n"
+
+    text += "\n_Sayohatingiz xayrli va maroqli o'tsin! 🎒🌟_"
+
+    back_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Boshqa shaharni tanlash", callback_data="weather_choose_again")]
+    ])
+    await query.edit_message_text(text, reply_markup=back_kb, parse_mode="Markdown")
 
 async def plan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [
@@ -391,14 +475,10 @@ def main():
         sys.exit(1)
         
     init_db()
-    
-    # Mini veb server (Render bepul rejimini ushlab turish uchun)
     threading.Thread(target=start_health_server, daemon=True).start()
 
     logger.info("Bot ishga tushirilmoqda...")
     
-    # Python 3.14 uchun yangi event loop yaratib berish
-    import asyncio
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -407,22 +487,18 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Buyruqlar
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("weather", weather_cmd))
     app.add_handler(CommandHandler("plan", plan_cmd))
     app.add_handler(CommandHandler("route", route_start))
 
-    # Tugmalar (Callbacks)
+    app.add_handler(CallbackQueryHandler(weather_cmd, pattern="^weather_choose_again$"))
     app.add_handler(CallbackQueryHandler(weather_callback, pattern="^w_"))
     app.add_handler(CallbackQueryHandler(plan_callback, pattern="^p_"))
     app.add_handler(CallbackQueryHandler(generic_callback))
 
-    # Lokatsiya
     app.add_handler(MessageHandler(filters.LOCATION, handle_location_input))
-
-    # Matnli xabarlar
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     logger.info("Bot muvaffaqiyatli ishga tushdi va xabarlarni tinglamoqda...")
