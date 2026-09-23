@@ -1,92 +1,104 @@
-#!/usr/bin/env python3
-"""
-Sayohatchi Telegram Bot - Main Application Entrypoint
-A complete travel, navigation, 7-day weather, and nearby-places assistant for Uzbekistan.
-
-Supports:
-- 🇺🇿 O‘zbek (default)
-- 🇷🇺 Русский
-- 🇬🇧 English
-"""
-
-import sys
 import logging
+import sys
+import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram.ext import (
     ApplicationBuilder,
+    CommandHandler,
     MessageHandler,
-    filters,
+    CallbackQueryHandler,
+    filters
 )
 
 from config import BOT_TOKEN
 from database import init_db
-from handlers import (
-    get_registration_handler,
-    get_routing_handler,
-    register_weather_handlers,
-    register_nearby_handlers,
-    get_profile_handler,
-    register_language_handlers,
-    register_menu_handlers,
-    global_error_handler,
-    unknown_message_handler,
+from handlers.common import (
+    start_command,
+    help_command,
+    profile_command,
+    language_command,
+    handle_callback,
+    handle_text_messages
 )
+from handlers.route import (
+    route_command,
+    handle_route_location,
+    handle_route_destination_input
+)
+from handlers.places import (
+    nearby_command,
+    handle_nearby_location
+)
+from handlers.itinerary import (
+    weather_command,
+    handle_weather_city_selection,
+    plan_command
+)
+from handlers.packing import pack_command
 
-# Configure logging format and level
+# Logging sozlamalari
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+    level=logging.INFO
 )
-logger = logging.getLogger("SayohatchiBot")
+logger = logging.getLogger(__name__)
 
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"Telegram Bot is running smoothly and 100% FREE!")
 
-def main() -> None:
-    """Initializes the database and runs the Telegram bot."""
-    logger.info("Initializing database...")
-    init_db()
+    def log_message(self, format, *args):
+        return
 
+def run_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    logger.info(f"Health-check server {port}-portda ishga tushdi...")
+    server.serve_forever()
+
+def main():
+    """Botni ishga tushirish funksiyasi."""
     if not BOT_TOKEN:
-        logger.error(
-            "ERROR: BOT_TOKEN is not set!\n"
-            "Please create a .env file based on .env.example and provide your Telegram Bot Token from @BotFather.\n"
-            "Example: BOT_TOKEN=1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ"
-        )
+        logger.error("BOT_TOKEN aniqlanmadi! Iltimos, .env faylida BOT_TOKEN ni belgilang.")
         sys.exit(1)
 
-    logger.info("Building Telegram Application...")
+    init_db()
+
+    # Bepul Render Web Service uchun fon rejimida mini-server
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # 1. Registration & Onboarding ConversationHandler
-    app.add_handler(get_registration_handler())
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("route", route_command))
+    app.add_handler(CommandHandler("nearby", nearby_command))
+    app.add_handler(CommandHandler("weather", weather_command))
+    app.add_handler(CommandHandler("plan", plan_command))
+    app.add_handler(CommandHandler("pack", pack_command))
+    app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(CommandHandler("lang", language_command))
 
-    # 2. Distance and Routing ConversationHandler
-    app.add_handler(get_routing_handler())
+    app.add_handler(CallbackQueryHandler(handle_weather_city_selection, pattern="^weather_"))
+    app.add_handler(CallbackQueryHandler(handle_callback))
 
-    # 3. Profile Edit ConversationHandler
-    app.add_handler(get_profile_handler())
+    app.add_handler(MessageHandler(filters.LOCATION, handle_route_location))
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_route_destination_input
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_text_messages
+    ))
 
-    # 4. 7-Day Weather Handlers
-    register_weather_handlers(app)
-
-    # 5. Nearby Places Handlers
-    register_nearby_handlers(app)
-
-    # 6. Language Selection Handlers
-    register_language_handlers(app)
-
-    # 7. Menu, Navigation & About Handlers
-    register_menu_handlers(app)
-
-    # 8. Catch-all for unhandled text messages
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_message_handler)
-    )
-
-    # 9. Global Error Handler
-    app.add_error_handler(global_error_handler)
-
-    logger.info("Sayohatchi Bot is starting polling...")
+    logger.info("Bot muvaffaqiyatli ishga tushdi...")
     app.run_polling(drop_pending_updates=True)
-
 
 if __name__ == "__main__":
     main()
