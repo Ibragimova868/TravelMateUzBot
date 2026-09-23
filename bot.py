@@ -385,34 +385,48 @@ def start_health_server():
 
 import asyncio
 
-async def run_bot():
+def main():
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN aniqlanmadi!")
+        sys.exit(1)
+        
+    init_db()
+    
+    # Mini veb server (Render bepul rejimini ushlab turish uchun)
+    threading.Thread(target=start_health_server, daemon=True).start()
+
+    logger.info("Bot ishga tushirilmoqda...")
+    
+    # Python 3.14 uchun yangi event loop yaratib berish
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Buyruqlar
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("weather", weather_cmd))
     app.add_handler(CommandHandler("plan", plan_cmd))
     app.add_handler(CommandHandler("route", route_start))
+
+    # Tugmalar (Callbacks)
     app.add_handler(CallbackQueryHandler(weather_callback, pattern="^w_"))
     app.add_handler(CallbackQueryHandler(plan_callback, pattern="^p_"))
     app.add_handler(CallbackQueryHandler(generic_callback))
+
+    # Lokatsiya
     app.add_handler(MessageHandler(filters.LOCATION, handle_location_input))
+
+    # Matnli xabarlar
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    logger.info("Bot muvaffaqiyatli ishga tushdi...")
-    async with app:
-        await app.start()
-        await app.updater.start_polling(drop_pending_updates=True)
-        # To'xtovsiz ishlash
-        while True:
-            await asyncio.sleep(3600)
-
-def main():
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN aniqlanmadi!")
-        sys.exit(1)
-    init_db()
-    threading.Thread(target=start_health_server, daemon=True).start()
-    asyncio.run(run_bot())
+    logger.info("Bot muvaffaqiyatli ishga tushdi va xabarlarni tinglamoqda...")
+    app.run_polling(drop_pending_updates=True, close_loop=False)
 
 if __name__ == "__main__":
     main()
