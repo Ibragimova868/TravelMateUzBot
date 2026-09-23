@@ -383,12 +383,9 @@ def start_health_server():
     server = HTTPServer(('0.0.0.0', port), SimpleHealthHandler)
     server.serve_forever()
 
-def main():
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN aniqlanmadi!")
-        sys.exit(1)
-    init_db()
-    threading.Thread(target=start_health_server, daemon=True).start()
+import asyncio
+
+async def run_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
@@ -400,8 +397,22 @@ def main():
     app.add_handler(CallbackQueryHandler(generic_callback))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location_input))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    logger.info("Bot ishga tushdi...")
-    app.run_polling(drop_pending_updates=True)
+
+    logger.info("Bot muvaffaqiyatli ishga tushdi...")
+    async with app:
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+        # To'xtovsiz ishlash
+        while True:
+            await asyncio.sleep(3600)
+
+def main():
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN aniqlanmadi!")
+        sys.exit(1)
+    init_db()
+    threading.Thread(target=start_health_server, daemon=True).start()
+    asyncio.run(run_bot())
 
 if __name__ == "__main__":
     main()
