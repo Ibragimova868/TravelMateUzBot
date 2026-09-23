@@ -1,0 +1,6 @@
+{
+  "name": "Sayohatchi Bot — Telegram Travel & Navigation Assistant",
+  "description": "Production-ready Telegram Bot in Python for road distance calculation, 7-day weather forecasts across Uzbekistan regions, and nearby places search.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
