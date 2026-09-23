@@ -163,18 +163,28 @@ def get_main_keyboard(lang="uz"):
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
 def fetch_weather(lat: float, lon: float):
+    """Open-Meteo bepul API orqali aniq 7 kunlik ob-havo."""
     try:
-        url = (
-            f"https://api.open-meteo.com/v1/forecast"
-            f"?latitude={lat}&longitude={lon}"
-            f"&current_weather=true"
-            f"&daily=weathercode,temperature_2m_max,temperature_2m_min"
-            f"&timezone=Asia%2FTashkent"
-        )
-        res = requests.get(url, timeout=10).json()
-        return res.get("current_weather", {}), res.get("daily", {})
+        url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "current_weather": "true",
+            "daily": ["temperature_2m_max", "temperature_2m_min", "weathercode"],
+            "timezone": "Asia/Tashkent"
+        }
+        headers = {
+            "User-Agent": "TravelMateUzBot/1.0"
+        }
+        res = requests.get(url, params=params, headers=headers, timeout=8)
+        if res.status_code == 200:
+            data = res.json()
+            return data.get("current_weather", {}), data.get("daily", {})
+        else:
+            logger.error(f"Weather API status: {res.status_code} - {res.text}")
+            return None, None
     except Exception as e:
-        logger.error(f"Weather error: {e}")
+        logger.error(f"Weather fetch error: {e}")
         return None, None
 
 def calculate_route_ors(start_lon: float, start_lat: float, end_lon: float, end_lat: float):
